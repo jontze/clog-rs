@@ -68,9 +68,17 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(TimeEntries::Id))
                     .col(integer(TimeEntries::TaskId).not_null())
-                    .col(timestamp_with_time_zone(TimeEntries::StartTime).not_null())
-                    .col(timestamp_with_time_zone(TimeEntries::EndTime).not_null())
-                    .col(integer(TimeEntries::Duration).not_null()) // duration in seconds
+                    .col(
+                        timestamp_with_time_zone(TimeEntries::StartTime)
+                            .not_null()
+                            .default(SimpleExpr::Keyword(Keyword::CurrentTimestamp)),
+                    )
+                    .col(timestamp_with_time_zone(TimeEntries::EndTime))
+                    .col(
+                        integer(TimeEntries::Duration)
+                            .not_null()
+                            .default(Value::Int(Some(0))),
+                    ) // duration in seconds
                     .col(
                         timestamp_with_time_zone(TimeEntries::CreatedAt)
                             .not_null()
