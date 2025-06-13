@@ -9,8 +9,8 @@ pub struct Model {
     pub id: i32,
     pub project_id: i32,
     pub name: String,
-    #[sea_orm(column_type = "Text")]
-    pub description: String,
+    #[sea_orm(column_type = "Text", nullable)]
+    pub description: Option<String>,
     pub status: String,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,

@@ -38,7 +38,7 @@ impl MigrationTrait for Migration {
                     .col(pk_auto(Tasks::Id))
                     .col(integer(Tasks::ProjectId).not_null())
                     .col(string(Tasks::Name).not_null().string_len(255))
-                    .col(text(Tasks::Description))
+                    .col(text_null(Tasks::Description))
                     .col(string(Tasks::Status).not_null().string_len(32))
                     .col(
                         timestamp_with_time_zone(Tasks::CreatedAt)
