@@ -14,7 +14,7 @@ impl MigrationTrait for Migration {
                     .if_not_exists()
                     .col(pk_auto(Projects::Id))
                     .col(string(Projects::Name).not_null().string_len(255))
-                    .col(text(Projects::Description))
+                    .col(text_null(Projects::Description))
                     .col(
                         timestamp_with_time_zone(Projects::CreatedAt)
                             .not_null()
