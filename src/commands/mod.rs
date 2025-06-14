@@ -8,6 +8,7 @@ use crate::{
 };
 
 mod command_executor;
+mod command_output;
 mod project;
 mod report;
 mod task;

@@ -1,9 +1,12 @@
 use clap::{Parser, Subcommand};
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, TransactionTrait, TryIntoModel, prelude::*};
+use serde::Deserialize;
+use tabled::Tabled;
 
 use super::CommandExecutorTrait;
 use crate::{
     Context,
+    commands::command_output::output,
     entity::{projects, tasks, time_entries},
 };
 
@@ -24,6 +27,8 @@ pub(super) enum TaskCommand {
     Create(CreateTaskCommand),
     /// Remove an existing task
     Remove(RemoveTaskCommand),
+    /// List all tasks
+    List(ListTasksCommand),
     /// Start a new task
     Start(StartTaskCommand),
     /// Stop an existing task
@@ -51,6 +56,13 @@ pub(super) struct RemoveTaskCommand {
     /// Name of the task to remove
     #[clap(short, long)]
     name: String,
+}
+
+#[derive(Parser)]
+pub(super) struct ListTasksCommand {
+    /// Filter tasks by project name
+    #[clap(short, long)]
+    project_name: String,
 }
 
 #[derive(Parser)]
@@ -87,6 +99,7 @@ impl CommandExecutorTrait for TaskCommand {
                 .await
             }
             TaskCommand::Remove(cmd) => remove(&ctx, &cmd.name).await,
+            TaskCommand::List(cmd) => list(&ctx, &cmd.project_name).await,
             TaskCommand::Start(cmd) => start(&ctx, &cmd.name).await,
             TaskCommand::Stop(cmd) => stop(&ctx, &cmd.name, cmd.finished, cmd.cancelled).await,
         }
@@ -286,4 +299,48 @@ fn calc_duration_to_now(start_time: DateTimeWithTimeZone) -> (i32, DateTimeWithT
         (end_time_utc - start_time).num_seconds() as i32,
         end_time_utc.with_timezone(offset),
     )
+}
+
+async fn list(ctx: &Context, project_name: &str) -> miette::Result<()> {
+    let project = projects::Entity::find()
+        .filter(projects::Column::Name.eq(project_name))
+        .one(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to find project: {}", e))?
+        .ok_or_else(|| miette::miette!("Project not found"))?;
+
+    let project_tasks = project
+        .find_related(tasks::Entity)
+        .all(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to find tasks for project: {}", e))?;
+
+    let mut tasks_table: Vec<TaskTable> = vec![];
+
+    for task in &project_tasks {
+        let amount_of_time_entries = time_entries::Entity::find()
+            .filter(time_entries::Column::TaskId.eq(task.id))
+            .count(&ctx.db)
+            .await
+            .map_err(|e| miette::miette!("Failed to count time entries: {}", e))?;
+        tasks_table.push(TaskTable {
+            id: task.id,
+            name: task.name.clone(),
+            description: task.description.clone().unwrap_or_default(),
+            status: task.status.clone(),
+            time_entries: amount_of_time_entries,
+        });
+    }
+
+    output(tasks_table);
+    Ok(())
+}
+
+#[derive(Tabled, Deserialize)]
+struct TaskTable {
+    id: i32,
+    name: String,
+    description: String,
+    status: String,
+    time_entries: u64,
 }
