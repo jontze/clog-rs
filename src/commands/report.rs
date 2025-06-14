@@ -79,20 +79,18 @@ async fn report_project(
                     .gt(today)
                     .and(time_entries::Column::StartTime.lt(tomorrow)),
             );
-        } else {
-            if let Some(date_str) = date_string {
-                // If a specific date is provided, filter tasks by that date and exclude the following days
-                let selected_day = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
-                    .map_err(|e| miette::miette!("Invalid date format: {}", e))?;
-                let next_day = selected_day.succ_opt().ok_or_else(|| {
-                    miette::miette!("Failed to calculate the next day for the provided date")
-                })?;
-                project_query = project_query.filter(
-                    time_entries::Column::StartTime
-                        .gt(selected_day)
-                        .and(time_entries::Column::StartTime.lt(next_day)),
-                );
-            }
+        } else if let Some(date_str) = date_string {
+            // If a specific date is provided, filter tasks by that date and exclude the following days
+            let selected_day = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+                .map_err(|e| miette::miette!("Invalid date format: {}", e))?;
+            let next_day = selected_day.succ_opt().ok_or_else(|| {
+                miette::miette!("Failed to calculate the next day for the provided date")
+            })?;
+            project_query = project_query.filter(
+                time_entries::Column::StartTime
+                    .gt(selected_day)
+                    .and(time_entries::Column::StartTime.lt(next_day)),
+            );
         }
         let project_task = project_query
             .all(&ctx.db)
