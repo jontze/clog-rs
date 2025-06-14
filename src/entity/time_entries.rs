@@ -9,7 +9,7 @@ pub struct Model {
     pub id: i32,
     pub task_id: i32,
     pub start_time: DateTimeWithTimeZone,
-    pub end_time: DateTimeWithTimeZone,
+    pub end_time: Option<DateTimeWithTimeZone>,
     pub duration: i32,
     pub created_at: DateTimeWithTimeZone,
     pub updated_at: DateTimeWithTimeZone,

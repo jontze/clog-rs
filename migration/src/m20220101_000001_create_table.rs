@@ -73,7 +73,7 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(SimpleExpr::Keyword(Keyword::CurrentTimestamp)),
                     )
-                    .col(timestamp_with_time_zone(TimeEntries::EndTime))
+                    .col(timestamp_with_time_zone_null(TimeEntries::EndTime))
                     .col(
                         integer(TimeEntries::Duration)
                             .not_null()
