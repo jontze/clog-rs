@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 use crate::{
     Context,
@@ -16,8 +16,19 @@ mod task;
 #[derive(Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Cli {
+    #[clap(short, long, default_value = "human")]
+    /// Set the output format (e.g., json, yaml, table, human)
+    output: OutputFormat,
     #[clap(subcommand)]
     command: Command,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+enum OutputFormat {
+    Json,
+    Yaml,
+    Toml,
+    Human,
 }
 
 #[derive(Subcommand)]
@@ -33,10 +44,10 @@ enum Command {
 }
 
 impl CommandExecutorTrait for Command {
-    async fn execute(&self, ctx: Context) -> miette::Result<()> {
+    async fn execute(&self, ctx: Context, output_format: OutputFormat) -> miette::Result<()> {
         match self {
-            Command::Project(cmd) => cmd.execute(ctx).await,
-            Command::Task(cmd) => cmd.execute(ctx).await,
+            Command::Project(cmd) => cmd.execute(ctx, output_format).await,
+            Command::Task(cmd) => cmd.execute(ctx, output_format).await,
             Command::Report => report::execute(ctx).await,
         }
     }
@@ -45,5 +56,5 @@ impl CommandExecutorTrait for Command {
 pub(crate) async fn invoke(ctx: Context) -> miette::Result<()> {
     let cli = Cli::parse();
 
-    cli.command.execute(ctx).await
+    cli.command.execute(ctx, cli.output).await
 }

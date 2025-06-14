@@ -1,12 +1,15 @@
 use clap::{Parser, Subcommand};
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, TransactionTrait, TryIntoModel, prelude::*};
-use serde::Deserialize;
+use serde::Serialize;
 use tabled::Tabled;
 
 use super::CommandExecutorTrait;
 use crate::{
     Context,
-    commands::command_output::output,
+    commands::{
+        OutputFormat,
+        command_output::{CommandOutput, NoTable},
+    },
     entity::{projects, tasks, time_entries},
 };
 
@@ -86,7 +89,7 @@ pub(super) struct StopTaskCommand {
 }
 
 impl CommandExecutorTrait for TaskCommand {
-    async fn execute(&self, ctx: Context) -> miette::Result<()> {
+    async fn execute(&self, ctx: Context, output_format: OutputFormat) -> miette::Result<()> {
         match self {
             TaskCommand::Create(cmd) => {
                 create(
@@ -95,13 +98,16 @@ impl CommandExecutorTrait for TaskCommand {
                     cmd.description.as_deref(),
                     &cmd.project_name,
                     cmd.start,
+                    output_format,
                 )
                 .await
             }
-            TaskCommand::Remove(cmd) => remove(&ctx, &cmd.name).await,
-            TaskCommand::List(cmd) => list(&ctx, &cmd.project_name).await,
-            TaskCommand::Start(cmd) => start(&ctx, &cmd.name).await,
-            TaskCommand::Stop(cmd) => stop(&ctx, &cmd.name, cmd.finished, cmd.cancelled).await,
+            TaskCommand::Remove(cmd) => remove(&ctx, &cmd.name, output_format).await,
+            TaskCommand::List(cmd) => list(&ctx, &cmd.project_name, output_format).await,
+            TaskCommand::Start(cmd) => start(&ctx, &cmd.name, output_format).await,
+            TaskCommand::Stop(cmd) => {
+                stop(&ctx, &cmd.name, cmd.finished, cmd.cancelled, output_format).await
+            }
         }
     }
 }
@@ -112,6 +118,7 @@ async fn create(
     description: Option<&str>,
     project_name: &str,
     start: bool,
+    output_format: OutputFormat,
 ) -> miette::Result<()> {
     let txn = ctx
         .db
@@ -159,10 +166,19 @@ async fn create(
         .await
         .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))?;
 
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message(format!(
+            "Task '{}' created successfully with status '{}'",
+            task.name, task.status
+        ))
+        .build()
+        .print();
+
     Ok(())
 }
 
-async fn remove(ctx: &Context, name: &str) -> miette::Result<()> {
+async fn remove(ctx: &Context, name: &str, output_format: OutputFormat) -> miette::Result<()> {
     let task = tasks::Entity::find()
         .filter(tasks::Column::Name.eq(name))
         .one(&ctx.db)
@@ -173,10 +189,16 @@ async fn remove(ctx: &Context, name: &str) -> miette::Result<()> {
     task.delete(&ctx.db)
         .await
         .map_err(|e| miette::miette!("Failed to remove task: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message("Task was removed successfully".to_string())
+        .build()
+        .print();
     Ok(())
 }
 
-async fn start(ctx: &Context, name: &str) -> miette::Result<()> {
+async fn start(ctx: &Context, name: &str, _output_format: OutputFormat) -> miette::Result<()> {
     let txn = ctx
         .db
         .begin()
@@ -226,10 +248,23 @@ async fn start(ctx: &Context, name: &str) -> miette::Result<()> {
 
     txn.commit()
         .await
-        .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))
+        .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(_output_format)
+        .with_prefix_message(format!("Started working on task '{}'", task.name))
+        .build()
+        .print();
+    Ok(())
 }
 
-async fn stop(ctx: &Context, name: &str, finished: bool, cancelled: bool) -> miette::Result<()> {
+async fn stop(
+    ctx: &Context,
+    name: &str,
+    finished: bool,
+    cancelled: bool,
+    _output_format: OutputFormat,
+) -> miette::Result<()> {
     let txn = ctx
         .db
         .begin()
@@ -281,14 +316,26 @@ async fn stop(ctx: &Context, name: &str, finished: bool, cancelled: bool) -> mie
     // Update task status to potential new status
     let mut active_model: tasks::ActiveModel = task.into();
     active_model.status = Set(new_task_status);
-    active_model
+    let task = active_model
         .update(&txn)
         .await
-        .map_err(|e| miette::miette!("Failed to stop task: {}", e))?;
+        .map_err(|e| miette::miette!("Failed to stop task: {}", e))?
+        .try_into_model()
+        .map_err(|e| miette::miette!("Failed to convert ActiveModel to Model: {}", e))?;
 
     txn.commit()
         .await
-        .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))
+        .map_err(|e| miette::miette!("Failed to commit transaction: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(_output_format)
+        .with_prefix_message(format!(
+            "Stopped working on task '{}'. New status: '{}'",
+            task.name, task.status
+        ))
+        .build()
+        .print();
+    Ok(())
 }
 
 fn calc_duration_to_now(start_time: DateTimeWithTimeZone) -> (i32, DateTimeWithTimeZone) {
@@ -301,7 +348,11 @@ fn calc_duration_to_now(start_time: DateTimeWithTimeZone) -> (i32, DateTimeWithT
     )
 }
 
-async fn list(ctx: &Context, project_name: &str) -> miette::Result<()> {
+async fn list(
+    ctx: &Context,
+    project_name: &str,
+    output_format: OutputFormat,
+) -> miette::Result<()> {
     let project = projects::Entity::find()
         .filter(projects::Column::Name.eq(project_name))
         .one(&ctx.db)
@@ -332,11 +383,16 @@ async fn list(ctx: &Context, project_name: &str) -> miette::Result<()> {
         });
     }
 
-    output(tasks_table);
+    CommandOutput::<Vec<TaskTable>, TaskTable>::builder()
+        .with_table_rows(tasks_table)
+        .with_mode(output_format)
+        .with_prefix_message(format!("Tasks for project '{}':", project.name))
+        .build()
+        .print();
     Ok(())
 }
 
-#[derive(Tabled, Deserialize)]
+#[derive(Tabled, Serialize, Clone)]
 struct TaskTable {
     id: i32,
     name: String,

@@ -1,10 +1,17 @@
 use clap::{Parser, Subcommand};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, prelude::*};
-use serde::Deserialize;
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, TryIntoModel, prelude::*};
+use serde::Serialize;
 use tabled::Tabled;
 
 use super::CommandExecutorTrait;
-use crate::{Context, commands::command_output::output, entity::projects};
+use crate::{
+    Context,
+    commands::{
+        OutputFormat,
+        command_output::{CommandOutput, NoTable},
+    },
+    entity::projects,
+};
 
 #[derive(Subcommand)]
 pub(super) enum ProjectCommand {
@@ -37,30 +44,46 @@ pub(super) struct RemoveProjectCommand {
 pub(super) struct ListProjectsCommand;
 
 impl CommandExecutorTrait for ProjectCommand {
-    async fn execute(&self, ctx: Context) -> miette::Result<()> {
+    async fn execute(&self, ctx: Context, output_format: OutputFormat) -> miette::Result<()> {
         match self {
             ProjectCommand::Create(cmd) => {
-                create(&ctx, &cmd.name, cmd.description.as_deref()).await
+                create(&ctx, &cmd.name, cmd.description.as_deref(), output_format).await
             }
-            ProjectCommand::Remove(cmd) => remove(&ctx, &cmd.name).await,
-            ProjectCommand::List(_) => list(&ctx).await,
+            ProjectCommand::Remove(cmd) => remove(&ctx, &cmd.name, output_format).await,
+            ProjectCommand::List(_) => list(&ctx, output_format).await,
         }
     }
 }
 
-async fn create(ctx: &Context, name: &str, description: Option<&str>) -> miette::Result<()> {
-    projects::ActiveModel {
+async fn create(
+    ctx: &Context,
+    name: &str,
+    description: Option<&str>,
+    output_format: OutputFormat,
+) -> miette::Result<()> {
+    let created_project = projects::ActiveModel {
         name: Set(name.to_string()),
         description: Set(description.map(|d| d.to_string())),
         ..Default::default()
     }
     .save(&ctx.db)
     .await
-    .map_err(|e| miette::miette!("Failed to create project: {}", e))?;
+    .map_err(|e| miette::miette!("Failed to create project: {}", e))?
+    .try_into_model()
+    .map_err(|e| miette::miette!("Failed to convert active model to project model: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message(format!(
+            "Project '{name}' created successfully",
+            name = created_project.name
+        ))
+        .build()
+        .print();
     Ok(())
 }
 
-async fn remove(ctx: &Context, name: &str) -> miette::Result<()> {
+async fn remove(ctx: &Context, name: &str, output_format: OutputFormat) -> miette::Result<()> {
     let project = projects::Entity::find()
         .filter(projects::Column::Name.eq(name))
         .one(&ctx.db)
@@ -71,10 +94,16 @@ async fn remove(ctx: &Context, name: &str) -> miette::Result<()> {
         .delete(&ctx.db)
         .await
         .map_err(|e| miette::miette!("Failed to remove project: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message("Project was removed successfully".to_string())
+        .build()
+        .print();
     Ok(())
 }
 
-async fn list(ctx: &Context) -> miette::Result<()> {
+async fn list(ctx: &Context, output_format: OutputFormat) -> miette::Result<()> {
     let projects = projects::Entity::find()
         .all(&ctx.db)
         .await
@@ -95,11 +124,17 @@ async fn list(ctx: &Context) -> miette::Result<()> {
         });
     }
 
-    output(projects_table);
+    CommandOutput::<Vec<ProjectTable>, ProjectTable>::builder()
+        .with_table_rows(projects_table)
+        .with_mode(output_format)
+        .with_prefix_message("All Projects in the database".to_string())
+        .build()
+        .print();
+
     Ok(())
 }
 
-#[derive(Tabled, Deserialize)]
+#[derive(Tabled, Serialize, Clone)]
 struct ProjectTable {
     id: i32,
     name: String,
