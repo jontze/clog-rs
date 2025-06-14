@@ -231,7 +231,7 @@ dependencies = [
  "futures-lite",
  "gloo-timers",
  "kv-log-macro",
- "log 0.4.27",
+ "log",
  "memchr",
  "once_cell",
  "pin-project-lite",
@@ -537,6 +537,23 @@ name = "clap_lex"
 version = "0.7.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b94f61472cee1439c0b966b47e3aca9ae07e45d070759512cd390ea2bebc6675"
+
+[[package]]
+name = "clog"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "clap",
+ "miette",
+ "migration",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "tabled",
+ "tokio",
+ "toml",
+]
 
 [[package]]
 name = "colorchoice"
@@ -1039,7 +1056,7 @@ dependencies = [
  "core-foundation-sys",
  "iana-time-zone-haiku",
  "js-sys",
- "log 0.4.27",
+ "log",
  "wasm-bindgen",
  "windows-core",
 ]
@@ -1221,7 +1238,7 @@ version = "1.0.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0de8b303297635ad57c9f5059fd9cee7a47f8e8daa09df0fcd07dd39fb22977f"
 dependencies = [
- "log 0.4.27",
+ "log",
 ]
 
 [[package]]
@@ -1276,23 +1293,6 @@ checksum = "96936507f153605bddfcda068dd804796c84324ed2510809e5b2a624c81da765"
 dependencies = [
  "autocfg",
  "scopeguard",
-]
-
-[[package]]
-name = "log"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "clap",
- "miette",
- "migration",
- "sea-orm",
- "serde",
- "serde_json",
- "serde_yaml",
- "tabled",
- "tokio",
- "toml",
 ]
 
 [[package]]
@@ -2017,7 +2017,7 @@ dependencies = [
  "bigdecimal",
  "chrono",
  "futures-util",
- "log 0.4.27",
+ "log",
  "ouroboros",
  "pgvector",
  "rust_decimal",
@@ -2370,7 +2370,7 @@ dependencies = [
  "hashbrown 0.15.4",
  "hashlink",
  "indexmap",
- "log 0.4.27",
+ "log",
  "memchr",
  "once_cell",
  "percent-encoding",
@@ -2454,7 +2454,7 @@ dependencies = [
  "hkdf",
  "hmac",
  "itoa",
- "log 0.4.27",
+ "log",
  "md-5",
  "memchr",
  "once_cell",
@@ -2498,7 +2498,7 @@ dependencies = [
  "hmac",
  "home",
  "itoa",
- "log 0.4.27",
+ "log",
  "md-5",
  "memchr",
  "num-bigint",
@@ -2533,7 +2533,7 @@ dependencies = [
  "futures-intrusive",
  "futures-util",
  "libsqlite3-sys",
- "log 0.4.27",
+ "log",
  "percent-encoding",
  "serde",
  "serde_urlencoded",
@@ -2871,7 +2871,7 @@ version = "0.1.41"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "784e0ac535deb450455cbfa28a6f0df145ea1bb7ae51b821cf5e7927fdcfbdd0"
 dependencies = [
- "log 0.4.27",
+ "log",
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
@@ -3058,7 +3058,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2f0a0651a5c2bc21487bde11ee802ccaf4c51935d0d3d42a6101f98161700bc6"
 dependencies = [
  "bumpalo",
- "log 0.4.27",
+ "log",
  "proc-macro2",
  "quote",
  "syn 2.0.102",

@@ -19,9 +19,12 @@ pub(super) enum ReportCommand {
 
 #[derive(Parser)]
 pub(super) struct ReportProjectCommand {
-    /// Whether to check today's time entries
+    /// Whether to gennerate the report for today
     #[clap(short, long)]
     today: bool,
+    /// The date to generate the report for (format: YYYY-MM-DD)
+    #[clap(short, long)]
+    date: Option<String>,
 }
 
 #[derive(Parser)]
@@ -37,7 +40,9 @@ pub(super) struct ReportTaskCommand {
 impl CommandExecutorTrait for ReportCommand {
     async fn execute(&self, ctx: Context, output_format: OutputFormat) -> miette::Result<()> {
         match self {
-            ReportCommand::Project(cmd) => report_project(ctx, output_format, cmd.today).await,
+            ReportCommand::Project(cmd) => {
+                report_project(ctx, output_format, cmd.today, &cmd.date).await
+            }
             ReportCommand::Task(cmd) => {
                 report_task(ctx, output_format, &cmd.task_name, &cmd.project_name).await
             }
@@ -49,23 +54,45 @@ async fn report_project(
     ctx: Context,
     output_format: OutputFormat,
     check_today: bool,
+    date_string: &Option<String>,
 ) -> miette::Result<()> {
+    //Fetch all projects from the database
     let all_projects = projects::Entity::find()
         .all(&ctx.db)
         .await
         .map_err(|e| miette::miette!("Failed to fetch projects: {}", e))?;
 
     let mut project_table: Vec<ReportProjectTable> = vec![];
+    // Iterate through each project and fetch related tasks and time entries
     for project in all_projects {
         let mut project_query = project
             .find_related(tasks::Entity)
             .find_with_related(time_entries::Entity);
+        // If the `check_today` flag is set, filter tasks by today's time entries
         if check_today {
-            // If the `check_today` flag is set, filter tasks by today's time entries
+            let today = chrono::Utc::now().date_naive();
+            let tomorrow = today
+                .succ_opt()
+                .ok_or_else(|| miette::miette!("Failed to calculate tomorrow's date"))?;
             project_query = project_query.filter(
                 time_entries::Column::StartTime
-                    .gt(chrono::Utc::now().date_naive().and_hms_opt(0, 0, 0)),
+                    .gt(today)
+                    .and(time_entries::Column::StartTime.lt(tomorrow)),
             );
+        } else {
+            if let Some(date_str) = date_string {
+                // If a specific date is provided, filter tasks by that date and exclude the following days
+                let selected_day = chrono::NaiveDate::parse_from_str(&date_str, "%Y-%m-%d")
+                    .map_err(|e| miette::miette!("Invalid date format: {}", e))?;
+                let next_day = selected_day.succ_opt().ok_or_else(|| {
+                    miette::miette!("Failed to calculate the next day for the provided date")
+                })?;
+                project_query = project_query.filter(
+                    time_entries::Column::StartTime
+                        .gt(selected_day)
+                        .and(time_entries::Column::StartTime.lt(next_day)),
+                );
+            }
         }
         let project_task = project_query
             .all(&ctx.db)
@@ -95,8 +122,6 @@ async fn report_project(
             open_time_entries,
         });
     }
-
-    // Placeholder for project report logic
 
     CommandOutput::builder()
         .with_table_rows(project_table)
