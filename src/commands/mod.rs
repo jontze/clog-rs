@@ -3,7 +3,8 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::{
     Context,
     commands::{
-        command_executor::CommandExecutorTrait, project::ProjectCommand, task::TaskCommand,
+        command_executor::CommandExecutorTrait, project::ProjectCommand, report::ReportCommand,
+        task::TaskCommand,
     },
 };
 
@@ -40,7 +41,8 @@ enum Command {
     #[clap(subcommand)]
     Task(TaskCommand),
     /// Interaction with project reports
-    Report,
+    #[clap(subcommand)]
+    Report(ReportCommand),
 }
 
 impl CommandExecutorTrait for Command {
@@ -48,7 +50,7 @@ impl CommandExecutorTrait for Command {
         match self {
             Command::Project(cmd) => cmd.execute(ctx, output_format).await,
             Command::Task(cmd) => cmd.execute(ctx, output_format).await,
-            Command::Report => report::execute(ctx).await,
+            Command::Report(cmd) => cmd.execute(ctx, output_format).await,
         }
     }
 }
