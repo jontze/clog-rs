@@ -4,7 +4,7 @@ use crate::{
     Context,
     commands::{
         command_executor::CommandExecutorTrait, project::ProjectCommand, report::ReportCommand,
-        task::TaskCommand,
+        sync::SyncCommand, task::TaskCommand,
     },
 };
 
@@ -12,6 +12,7 @@ mod command_executor;
 mod command_output;
 mod project;
 mod report;
+mod sync;
 mod task;
 
 #[derive(Parser)]
@@ -43,6 +44,9 @@ enum Command {
     /// Interaction with project reports
     #[clap(subcommand)]
     Report(ReportCommand),
+    /// Interactions with the remote storage
+    #[clap(subcommand)]
+    Sync(SyncCommand),
 }
 
 impl CommandExecutorTrait for Command {
@@ -51,6 +55,7 @@ impl CommandExecutorTrait for Command {
             Command::Project(cmd) => cmd.execute(ctx, output_format).await,
             Command::Task(cmd) => cmd.execute(ctx, output_format).await,
             Command::Report(cmd) => cmd.execute(ctx, output_format).await,
+            Command::Sync(cmd) => cmd.execute(ctx, output_format).await,
         }
     }
 }
