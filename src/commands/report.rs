@@ -29,12 +29,15 @@ pub(super) struct ReportProjectCommand {
 
 #[derive(Parser)]
 pub(super) struct ReportTaskCommand {
-    /// The name of the task to generate a report for
-    #[clap(short, long)]
-    task_name: String,
     /// The name of the project the task belongs to
     #[clap(short, long)]
     project_name: String,
+    /// Whether to gennerate the report for today
+    #[clap(short, long)]
+    today: bool,
+    /// The date to generate the report for (format: YYYY-MM-DD)
+    #[clap(short, long)]
+    date: Option<String>,
 }
 
 impl CommandExecutorTrait for ReportCommand {
@@ -44,7 +47,7 @@ impl CommandExecutorTrait for ReportCommand {
                 report_project(ctx, output_format, cmd.today, &cmd.date).await
             }
             ReportCommand::Task(cmd) => {
-                report_task(ctx, output_format, &cmd.task_name, &cmd.project_name).await
+                report_task(ctx, output_format, &cmd.project_name, cmd.today, &cmd.date).await
             }
         }
     }
@@ -123,7 +126,15 @@ async fn report_project(
 
     CommandOutput::builder()
         .with_table_rows(project_table)
-        .with_prefix_message("Time spent per project".to_string())
+        .with_prefix_message(format!("Time spent per project ({})", {
+            if check_today {
+                "today"
+            } else if let Some(date_str) = date_string {
+                date_str
+            } else {
+                "all time"
+            }
+        }))
         .with_mode(output_format)
         .build()
         .print();
@@ -143,15 +154,108 @@ struct ReportProjectTable {
 }
 
 async fn report_task(
-    _ctx: Context,
-    _output_format: OutputFormat,
-    task_name: &str,
+    ctx: Context,
+    output_format: OutputFormat,
     project_name: &str,
+    check_today: bool,
+    date_string: &Option<String>,
 ) -> miette::Result<()> {
-    // Placeholder for task report logic
-    unimplemented!(
-        "Generating report for task '{}' in project '{}'",
-        task_name,
-        project_name
-    )
+    // Fetch the project tasks by project name
+    let project = projects::Entity::find()
+        .filter(projects::Column::Name.eq(project_name))
+        .one(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to fetch tasks for project: {}", e))?
+        .ok_or(miette::miette!(
+            "Project with name '{}' not found",
+            project_name
+        ))?;
+    // Start the query to find all tasks with related time entries
+    let mut tasks_with_time_entries = project
+        .find_related(tasks::Entity)
+        .find_with_related(time_entries::Entity);
+    // If the `check_today` flag is set, filter tasks by today's time entries
+    if check_today {
+        let today_date = chrono::Utc::now().date_naive();
+        let tomorrow_date = today_date
+            .succ_opt()
+            .ok_or_else(|| miette::miette!("Failed to calculate tomorrow's date"))?;
+        tasks_with_time_entries = tasks_with_time_entries.filter(
+            time_entries::Column::StartTime
+                .gt(today_date)
+                .and(time_entries::Column::StartTime.lt(tomorrow_date)),
+        );
+    } else if let Some(date_str) = date_string {
+        // If a specific date is provided, filter tasks by that date and exclude the following days
+        let selected_day = chrono::NaiveDate::parse_from_str(date_str, "%Y-%m-%d")
+            .map_err(|e| miette::miette!("Invalid date format: {}", e))?;
+        let next_day = selected_day.succ_opt().ok_or_else(|| {
+            miette::miette!("Failed to calculate the next day for the provided date")
+        })?;
+        tasks_with_time_entries = tasks_with_time_entries.filter(
+            time_entries::Column::StartTime
+                .gt(selected_day)
+                .and(time_entries::Column::StartTime.lt(next_day)),
+        );
+    }
+    let tasks_with_time_entries = tasks_with_time_entries.all(&ctx.db).await.map_err(|e| {
+        miette::miette!(
+            "Failed to fetch tasks for project '{}': {}",
+            project_name,
+            e
+        )
+    })?;
+
+    let mut task_table: Vec<ReportTaskTable> = vec![];
+    for (task, time_entry_items) in tasks_with_time_entries {
+        let time_spent_secs = time_entry_items
+            .iter()
+            .map(|entry| entry.duration)
+            .sum::<i32>();
+        let time_entries_count = time_entry_items.len();
+        let open_time_entries = time_entry_items
+            .iter()
+            .any(|entry| entry.end_time.is_none());
+        let spend_mins = time_spent_secs as f32 / 60.00_f32;
+        let spend_hours = spend_mins / 60.00_f32;
+        task_table.push(ReportTaskTable {
+            id: task.id,
+            name: task.name,
+            description: task.description.unwrap_or("".to_string()),
+            time_spent_min: format!("{spend_mins:.2} mins"),
+            time_spent_hours: format!("{spend_hours:.2} hours"),
+            time_entries: time_entries_count,
+            open_time_entries,
+        });
+    }
+
+    CommandOutput::builder()
+        .with_table_rows(task_table)
+        .with_prefix_message(format!(
+            "Time spent per task in project '{project_name}' ({})",
+            {
+                if check_today {
+                    "today"
+                } else if let Some(date_str) = date_string {
+                    date_str
+                } else {
+                    "all time"
+                }
+            }
+        ))
+        .with_mode(output_format)
+        .build()
+        .print();
+    Ok(())
+}
+
+#[derive(Tabled, Serialize, Clone)]
+struct ReportTaskTable {
+    id: i32,
+    name: String,
+    description: String,
+    time_spent_min: String,
+    time_spent_hours: String,
+    time_entries: usize,
+    open_time_entries: bool,
 }
