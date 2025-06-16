@@ -1,5 +1,7 @@
 use clap::{Parser, Subcommand};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, TransactionTrait, TryIntoModel, prelude::*};
+use sea_orm::{
+    ActiveModelTrait, ActiveValue::Set, IntoActiveModel, TransactionTrait, TryIntoModel, prelude::*,
+};
 use serde::Serialize;
 use tabled::Tabled;
 
@@ -32,6 +34,8 @@ pub(super) enum TaskCommand {
     Remove(RemoveTaskCommand),
     /// List all tasks
     List(ListTasksCommand),
+    /// Edit an existing task
+    Edit(EditTaskCommand),
     /// Start a new task
     Start(StartTaskCommand),
     /// Stop an existing task
@@ -88,6 +92,19 @@ pub(super) struct StopTaskCommand {
     cancelled: bool,
 }
 
+#[derive(Parser)]
+pub(super) struct EditTaskCommand {
+    /// Name of the task to edit
+    #[clap(short, long)]
+    name: String,
+    /// New name for the task
+    #[clap(short = 'N', long)]
+    new_name: Option<String>,
+    /// New description for the task
+    #[clap(short = 'd', long)]
+    new_description: Option<String>,
+}
+
 impl CommandExecutorTrait for TaskCommand {
     async fn execute(&self, ctx: Context, output_format: OutputFormat) -> miette::Result<()> {
         match self {
@@ -107,6 +124,16 @@ impl CommandExecutorTrait for TaskCommand {
             TaskCommand::Start(cmd) => start(&ctx, &cmd.name, output_format).await,
             TaskCommand::Stop(cmd) => {
                 stop(&ctx, &cmd.name, cmd.finished, cmd.cancelled, output_format).await
+            }
+            TaskCommand::Edit(cmd) => {
+                edit(
+                    &ctx,
+                    output_format,
+                    &cmd.name,
+                    cmd.new_name.as_deref(),
+                    cmd.new_description.as_deref(),
+                )
+                .await
             }
         }
     }
@@ -399,4 +426,39 @@ struct TaskTable {
     description: String,
     status: String,
     time_entries: u64,
+}
+
+async fn edit(
+    ctx: &Context,
+    output_format: OutputFormat,
+    name: &str,
+    new_name: Option<&str>,
+    new_description: Option<&str>,
+) -> miette::Result<()> {
+    let mut task = tasks::Entity::find()
+        .filter(tasks::Column::Name.eq(name))
+        .one(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to find task: {}", e))?
+        .ok_or_else(|| miette::miette!("Task not found"))?
+        .into_active_model();
+
+    if let Some(new_name) = new_name {
+        task.name = Set(new_name.to_string());
+    }
+    if let Some(new_description) = new_description {
+        task.description = Set(Some(new_description.to_string()));
+    }
+
+    let task = task
+        .update(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to update task: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message(format!("Task '{}' updated successfully", task.name))
+        .build()
+        .print();
+    Ok(())
 }

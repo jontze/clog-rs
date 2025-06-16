@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use sea_orm::{ActiveModelTrait, ActiveValue::Set, TryIntoModel, prelude::*};
+use sea_orm::{ActiveModelTrait, ActiveValue::Set, IntoActiveModel, TryIntoModel, prelude::*};
 use serde::Serialize;
 use tabled::Tabled;
 
@@ -21,6 +21,8 @@ pub(super) enum ProjectCommand {
     Remove(RemoveProjectCommand),
     /// List all projects
     List(ListProjectsCommand),
+    /// Edit an exising project
+    Edit(EditProjectCommand),
 }
 
 #[derive(Parser)]
@@ -41,6 +43,19 @@ pub(super) struct RemoveProjectCommand {
 }
 
 #[derive(Parser)]
+pub(super) struct EditProjectCommand {
+    /// Name of the project to edit
+    #[clap(short, long)]
+    name: String,
+    /// New name for the project
+    #[clap(short = 'N', long)]
+    new_name: Option<String>,
+    /// New description for the project
+    #[clap(short = 'd', long)]
+    new_description: Option<String>,
+}
+
+#[derive(Parser)]
 pub(super) struct ListProjectsCommand;
 
 impl CommandExecutorTrait for ProjectCommand {
@@ -51,6 +66,16 @@ impl CommandExecutorTrait for ProjectCommand {
             }
             ProjectCommand::Remove(cmd) => remove(&ctx, &cmd.name, output_format).await,
             ProjectCommand::List(_) => list(&ctx, output_format).await,
+            ProjectCommand::Edit(cmd) => {
+                edit(
+                    &ctx,
+                    &cmd.name,
+                    cmd.new_name.as_deref(),
+                    cmd.new_description.as_deref(),
+                    output_format,
+                )
+                .await
+            }
         }
     }
 }
@@ -140,4 +165,39 @@ struct ProjectTable {
     name: String,
     description: String,
     tasks: u64,
+}
+
+async fn edit(
+    ctx: &Context,
+    name: &str,
+    new_name: Option<&str>,
+    new_description: Option<&str>,
+    output_format: OutputFormat,
+) -> miette::Result<()> {
+    let mut project = projects::Entity::find()
+        .filter(projects::Column::Name.eq(name))
+        .one(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to find project: {}", e))?
+        .ok_or_else(|| miette::miette!("Project not found"))?
+        .into_active_model();
+
+    if let Some(new_name) = new_name {
+        project.name = Set(new_name.to_string());
+    }
+    if let Some(new_description) = new_description {
+        project.description = Set(Some(new_description.to_string()));
+    }
+
+    let project = project
+        .update(&ctx.db)
+        .await
+        .map_err(|e| miette::miette!("Failed to update project: {}", e))?;
+
+    CommandOutput::<Vec<NoTable>, NoTable>::builder()
+        .with_mode(output_format)
+        .with_prefix_message(format!("Project '{}' updated successfully", project.name))
+        .build()
+        .print();
+    Ok(())
 }
