@@ -1,0 +1,16 @@
+prefix_messages = ["All Projects in the database"]
+suffix_messages = []
+error_messages = []
+
+[[table_rows]]
+id = 1
+name = "demo_project"
+description = "A demo project"
+tasks = 0
+
+[[table_rows]]
+id = 2
+name = "demo_project_2"
+description = "Another demo project"
+tasks = 0
+
