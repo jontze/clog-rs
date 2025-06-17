@@ -3,13 +3,14 @@ use clap::{Parser, Subcommand, ValueEnum};
 use crate::{
     Context,
     commands::{
-        command_executor::CommandExecutorTrait, project::ProjectCommand, report::ReportCommand,
-        sync::SyncCommand, task::TaskCommand,
+        command_executor::CommandExecutorTrait, completion::CompletionCommand,
+        project::ProjectCommand, report::ReportCommand, sync::SyncCommand, task::TaskCommand,
     },
 };
 
 mod command_executor;
 mod command_output;
+mod completion;
 mod project;
 mod report;
 mod sync;
@@ -47,6 +48,9 @@ enum Command {
     /// Interactions with the remote storage
     #[clap(subcommand)]
     Sync(SyncCommand),
+    /// Setup Shell Completion
+    #[clap(subcommand)]
+    Completion(CompletionCommand),
 }
 
 impl CommandExecutorTrait for Command {
@@ -56,6 +60,7 @@ impl CommandExecutorTrait for Command {
             Command::Task(cmd) => cmd.execute(ctx, output_format).await,
             Command::Report(cmd) => cmd.execute(ctx, output_format).await,
             Command::Sync(cmd) => cmd.execute(ctx, output_format).await,
+            Command::Completion(cmd) => cmd.execute(ctx, output_format).await,
         }
     }
 }
