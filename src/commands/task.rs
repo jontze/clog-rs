@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use sea_orm::{
-    ActiveModelTrait, ActiveValue::Set, IntoActiveModel, TransactionTrait, TryIntoModel, prelude::*,
+    ActiveModelTrait, ActiveValue::Set, DatabaseTransaction, IntoActiveModel, TransactionTrait,
+    TryIntoModel, prelude::*,
 };
 use serde::Serialize;
 use tabled::Tabled;
@@ -165,6 +166,8 @@ async fn create(
     } else {
         TASK_STATUS_PENDING.to_string()
     };
+
+    // Create a new task
     let task = tasks::ActiveModel {
         name: Set(name.to_string()),
         description: Set(description.map(|d| d.to_string())),
@@ -178,15 +181,11 @@ async fn create(
     .try_into_model()
     .expect("Failed to convert ActiveModel to Model");
 
-    // Create a new time entry if the task is started
+    // Create a new time entry if the task should also be started
     if start {
-        time_entries::ActiveModel {
-            task_id: Set(task.id),
-            ..Default::default()
-        }
-        .save(&txn)
-        .await
-        .map_err(|e| miette::miette!("Failed to create time entry: {}", e))?;
+        start_task(&txn, &task.name)
+            .await
+            .map_err(|e| miette::miette!("Failed to start task: {}", e))?;
     }
 
     txn.commit()
@@ -232,46 +231,18 @@ async fn start(ctx: &Context, name: &str, _output_format: OutputFormat) -> miett
         .await
         .map_err(|e| miette::miette!("Failed to begin transaction: {}", e))?;
 
-    let task = tasks::Entity::find()
-        .filter(tasks::Column::Name.eq(name))
-        .one(&txn)
+    let task = start_task(&txn, name)
         .await
-        .map_err(|e| miette::miette!("Failed to find task: {}", e))?
-        .ok_or_else(|| miette::miette!("Task not found"))?;
+        .map_err(|e| miette::miette!("Failed to start task '{}': {}", name, e))?;
 
     if [TASK_STATUS_CANCELLED, TASK_STATUS_COMPLETED].contains(&task.status.as_str()) {
+        txn.rollback()
+            .await
+            .map_err(|e| miette::miette!("Failed to rollback transaction: {}", e))?;
         return Err(miette::miette!(
             "Task is not in a state that can be started"
         ));
     }
-
-    // Update task status to 'in_progress'
-    let mut active_model: tasks::ActiveModel = task.clone().into();
-    active_model.status = Set(TASK_STATUS_IN_PROGRESS.to_string());
-    active_model
-        .update(&txn)
-        .await
-        .map_err(|e| miette::miette!("Failed to start task: {}", e))?;
-
-    // If there is an existing time entry for this task, that is not completed we should not create a new one
-    let existing_unfinished_time_entry = time_entries::Entity::find()
-        .filter(time_entries::Column::TaskId.eq(task.id))
-        .filter(time_entries::Column::EndTime.is_null())
-        .one(&txn)
-        .await
-        .map_err(|e| miette::miette!("Failed to find time entry: {}", e))?;
-    if existing_unfinished_time_entry.is_some() {
-        return Err(miette::miette!("Task already has an unfinished time entry"));
-    }
-
-    // Create a new time entry for the task
-    time_entries::ActiveModel {
-        task_id: Set(task.id),
-        ..Default::default()
-    }
-    .save(&txn)
-    .await
-    .map_err(|e| miette::miette!("Failed to create time entry: {}", e))?;
 
     txn.commit()
         .await
@@ -461,4 +432,53 @@ async fn edit(
         .build()
         .print();
     Ok(())
+}
+
+async fn start_task(txn: &DatabaseTransaction, task_name: &str) -> miette::Result<tasks::Model> {
+    // Find the task by name
+    let mut task = tasks::Entity::find()
+        .filter(tasks::Column::Name.eq(task_name))
+        .one(txn)
+        .await
+        .map_err(|e| miette::miette!("Failed to find task: {}", e))?
+        .ok_or_else(|| miette::miette!("Task not found"))?
+        .into_active_model();
+
+    // Set the task to in_progress status
+    task.status = Set(TASK_STATUS_IN_PROGRESS.into());
+    let task = task
+        .update(txn)
+        .await
+        .map_err(|e| miette::miette!("Failed to update task: {}", e))?;
+
+    // Get all pending time entries for other task
+    let open_time_entries = time_entries::Entity::find()
+        .filter(time_entries::Column::EndTime.is_null())
+        .all(txn)
+        .await
+        .map_err(|e| miette::miette!("Failed to find time entries: {}", e))?;
+
+    // Stop all open time entries task
+    // and update their end time and duration
+    for time_entry in open_time_entries {
+        let (duration, end_time) = calc_duration_to_now(time_entry.start_time);
+        let mut time_entry_active_model: time_entries::ActiveModel = time_entry.into();
+        time_entry_active_model.end_time = Set(Some(end_time));
+        time_entry_active_model.duration = Set(duration);
+        time_entry_active_model
+            .update(txn)
+            .await
+            .map_err(|e| miette::miette!("Failed to update time entry: {}", e))?;
+    }
+
+    // Create a new time entry for the task
+    time_entries::ActiveModel {
+        task_id: Set(task.id),
+        ..Default::default()
+    }
+    .insert(txn)
+    .await
+    .map_err(|e| miette::miette!("Failed to create time entry: {}", e))?;
+
+    Ok(task)
 }
