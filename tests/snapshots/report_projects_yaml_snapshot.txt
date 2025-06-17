@@ -1,0 +1,22 @@
+prefix_messages:
+- Time spent per project (all time)
+suffix_messages: []
+error_messages: []
+table_rows:
+- id: 1
+  name: demo_project
+  description: A demo project
+  time_spent_min: 0.00 mins
+  time_spent_hours: 0.00 hours
+  tasks: 2
+  time_entries: 0
+  open_time_entries: false
+- id: 2
+  name: another_project
+  description: Another project
+  time_spent_min: 0.00 mins
+  time_spent_hours: 0.00 hours
+  tasks: 2
+  time_entries: 0
+  open_time_entries: false
+

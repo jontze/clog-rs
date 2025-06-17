@@ -40,3 +40,18 @@ pub fn setup_test_db(test_name: &str, index: usize) -> PathBuf {
     std::fs::File::create(&db_path).expect("Failed to create database file");
     db_path
 }
+
+pub fn assert_snapshot(name: &str, output: &str) {
+    let snapshot_path = get_snapshot_path(name);
+    if Path::new(&snapshot_path).exists() {
+        let expected_output = read_snapshot(name);
+        assert_eq!(
+            output, expected_output,
+            "Output does not match the snapshot: {}",
+            snapshot_path
+        );
+    } else {
+        write_snapshot(name, output);
+        println!("Snapshot created: {}", snapshot_path);
+    }
+}
